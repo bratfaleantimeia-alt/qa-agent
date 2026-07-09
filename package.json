@@ -2,17 +2,26 @@
   "name": "qa-agent",
   "version": "1.0.0",
   "description": "",
+  "type": "module",
   "main": "index.js",
   "scripts": {
-     "start": "ts-node src/index.ts"
+    "start": " tsx"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "devDependencies": {
+    "@types/jira-client": "^7.1.9",
     "@types/node": "^26.1.0",
     "ts-node": "^10.9.2",
+    "tsx": "^4.23.0",
     "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "googleapis": "^173.0.0",
+    "jira-client": "^8.2.2"
   }
 }

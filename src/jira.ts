@@ -4,6 +4,7 @@ import * as dotenv from 'dotenv';
 import ExcelJS from 'exceljs';
 import { google } from 'googleapis';
 import fs from 'fs';
+import { getQAPrompt } from './prompts/testCasesPrompt.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -133,34 +134,7 @@ async function runQAAgent() {
       generationConfig: { responseMimeType: "application/json" }
     });
     
-    const prompt = `
-      You are a Senior QA Engineer. Analyze the following User Story from Jira and generate detailed and structured test cases.
-      Your response MUST be a valid JSON object with no other conversational text surrounding it.
-      
-      The strict JSON structure you MUST follow is:
-      {
-        "testCases": [
-          {
-            "id": "TC001",
-            "type": "Positive",
-            "title": "Short title of the test case",
-            "preconditions": "Necessary preconditions (if any, otherwise leave empty)",
-            "steps": "1. First step\\n2. Second step\\n3. Third step",
-            "expectedResult": "Detailed expected result"
-          }
-        ]
-      }
-      
-      Allowed values for 'type': 'Positive', 'Negative', 'Edge Case'.
-      
-      Here are the Jira issue details:
-      --------------------------------------------------
-      Story Title: ${storyTitle}
-      Story Description: ${storyDescription}
-      --------------------------------------------------
-      
-      Please write all generated text in English.
-    `;
+    const prompt = getQAPrompt(storyTitle, storyDescription);
     
     // Call the AI model and wait for the response
     const result = await model.generateContent(prompt);

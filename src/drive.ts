@@ -2,6 +2,8 @@ import JiraClient from 'jira-client';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as dotenv from 'dotenv';
 import ExcelJS from 'exceljs';
+import { google } from 'googleapis';
+import fs from 'fs';
 
 // Încărcăm variabilele de mediu din fișierul .env
 dotenv.config();
@@ -30,6 +32,61 @@ const jira = new JiraClient({
 // Inițializăm clientul Gemini API
 const genAI = new GoogleGenerativeAI(geminiApiKey);
 
+/**
+ * Funcție pentru a încărca un fișier local în Google Drive
+ */
+async function incarcaInGoogleDrive(numeFisier: string) {
+  const driveEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const driveKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'); // rezolvă caracterele de linie nouă din .env
+  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+
+  // Dacă nu sunt configurate datele de Google Drive, doar sărim peste acest pas fără să crăpăm aplicația
+  if (!driveEmail || !driveKey) {
+    console.log("\nℹ️ Notă: Integrarea cu Google Drive nu este configurată complet în .env. Fișierul a rămas doar local.");
+    return;
+  }
+
+  console.log(`\n📤 Pasul 5: Se inițiază încărcarea fișierului în Google Drive...`);
+
+  try {
+    // Configurare autentificare prin JWT (Service Account) folosind un singur obiect de opțiuni
+    const auth = new google.auth.JWT({
+      email: driveEmail,
+      key: driveKey,
+      scopes: ['https://www.googleapis.com/auth/drive']
+    });
+
+    const drive = google.drive({ version: 'v3', auth });
+
+    // Folosim o structură flexibilă pentru a evita erorile stricte de tipuri (exactOptionalPropertyTypes)
+    const fileMetadata: any = {
+      name: numeFisier
+    };
+
+    // Adăugăm folderul părinte doar dacă acesta este definit în .env
+    if (folderId) {
+      fileMetadata.parents = [folderId];
+    }
+
+    const media = {
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      body: fs.createReadStream(numeFisier)
+    };
+
+    // Castăm răspunsul la 'any' pentru a evita problemele de rezoluție a supraîncărcărilor din TypeScript
+    const response: any = await drive.files.create({
+      requestBody: fileMetadata,
+      media: media,
+      fields: 'id, webViewLink'
+    });
+
+    console.log(`✅ Fișierul a fost încărcat cu succes în Google Drive!`);
+    console.log(`🔗 Link acces: ${response.data.webViewLink}`);
+  } catch (error) {
+    console.error("❌ Eroare la încărcarea în Google Drive:", error);
+  }
+}
+
 async function ruleazaAgentQA() {
   try {
     // 1. Definim tichetul pe care vrem să îl analizăm (înlocuiește cu un ID valid din Jira-ul tău)
@@ -46,7 +103,6 @@ async function ruleazaAgentQA() {
     // 2. Pregătim instrucțiunile (prompt-ul) pentru Gemini ca să ne returneze JSON structurat
     console.log(`\n🤖 Pasul 2: Se trimit datele către Gemini AI pentru analiză QA...`);
     
-    // Configurăm Gemini să returneze un format JSON strict
     const model = genAI.getGenerativeModel({ 
       model: 'gemini-2.5-flash',
       generationConfig: { responseMimeType: "application/json" }
@@ -78,7 +134,7 @@ async function ruleazaAgentQA() {
       Descriere Story: ${descriereStory}
       --------------------------------------------------
       
-      Te rog să scrii textele în limba română.
+      Te rog să scrii textele în limba engleză.
     `;
     
     // Apelăm modelul de AI și așteptăm răspunsul
@@ -89,7 +145,6 @@ async function ruleazaAgentQA() {
     console.log(`\n📊 Pasul 3: Se procesează datele primite de la AI...`);
     
     let curatat = raspunsAI.trim();
-    // Curățăm eventualele blocuri de cod markdown trimise accidental de model
     if (curatat.startsWith('```')) {
       curatat = curatat.replace(/^```json\s*/, '').replace(/```$/, '').trim();
     }
@@ -145,10 +200,12 @@ async function ruleazaAgentQA() {
     const numeFisier = `Cazuri_Testare_${issueKey}.xlsx`;
     await workbook.xlsx.writeFile(numeFisier);
     
-    console.log(`\n💾 Succes deplin!`);
-    console.log(`--------------------------------------------------`);
-    console.log(`📁 Fișierul Excel a fost salvat ca: ${numeFisier}`);
-    console.log(`💡 Deschide folderul proiectului pentru a vizualiza fișierul Excel generat.`);
+    console.log(`📁 Fișierul Excel a fost salvat local ca: ${numeFisier}`);
+    
+    // 5. Încărcăm în Google Drive (dacă este configurat în .env)
+    await incarcaInGoogleDrive(numeFisier);
+    
+    console.log(`\n💾 Proces încheiat!`);
     console.log(`--------------------------------------------------`);
     
   } catch (error) {
