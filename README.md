@@ -36,19 +36,23 @@ The QA Agent is an intelligent assistant developed in Node.js with TypeScript, d
 To ensure the codebase remains maintainable and clean, we separated the application into isolated services, each adhering to the Single Responsibility Principle:
 qa-agent/
 ├── prompts/
-│   └── testCasesPrompt.ts     # Modular template for the prompt sent to the AI
+│   └── testCasesPrompt.ts                # Modular template for the prompt sent to the AI - just for testcases for manual run
+│   └── testCasesPromptPOM.ts             # Modular template for the prompt sent to the AI - for typescript tests - locators in the prompt
+│   └── playwrightFromTestCasesPrompt.ts  # Using the live website DOM and pre-generated test cases, this prompt instructs the AI                                         to  write functional Playwright tests instantly.
 ├── src/
 │   ├── services/
-│   │   ├── jiraService.ts     # Handles reading tickets and posting comments on Jira
-│   │   ├── geminiService.ts   # Handles interactions with the Google Gemini LLM
-│   │   ├── excelService.ts    # Generates and styles the Excel (.xlsx) file
-│   │   └── driveService.ts    # Connects to and uploads files to Google Drive
-│   └── orchestrator.ts        # The main orchestrator that coordinates the overall flow
-├── .env                       # Local secured file with API keys (ignored by Git)
-├── .env.example               # Configuration template for other developers
-├── .gitignore                 # Exclusion rules for sensitive or generated files
-├── package.json               # Node.js project configuration and quick scripts
-└── tsconfig.json              # TypeScript compiler configuration
+│   │   ├── jiraService.ts          # Handles reading tickets and posting comments on Jira
+│   │   ├── geminiServiceDOM.ts     # Handles interactions with the Google Gemini LLM to generate manual and automation testcases
+│   │   ├── excelService.ts         # Generates and styles the Excel (.xlsx) file
+│   │   └── driveService.ts         # Connects to and uploads files to Google Drive
+│   └── orchestrator.ts             # The main orchestrator that coordinates the flow - generates manual test cases und uploads to drive, created an excel and also adds a jira comment
+│   └── index.ts                    # The main orchestrator that coordinates the flow - generates manual test cases and the playwright automation tests
+
+├── .env                            # Local secured file with API keys (ignored by Git)
+├── .env.example                    # Configuration template for other developers
+├── .gitignore                      # Exclusion rules for sensitive or generated files
+├── package.json                    # Node.js project configuration and quick scripts
+└── tsconfig.json                   # TypeScript compiler configuration
 
 
 3. Installing the Project from Scratch
@@ -216,3 +220,5 @@ Solution: Ensure your imports in index.ts look like this:
 
 import { fetchJiraIssue } from './services/jiraService.js';
 
+npm start src/orchestrator.ts
+npm start src/index.ts

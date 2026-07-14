@@ -11,6 +11,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/jira-client": "^7.1.9",
     "@types/node": "^26.1.0",
     "ts-node": "^10.9.2",

@@ -1,159 +1,45 @@
-import JiraClient from 'jira-client';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import * as dotenv from 'dotenv';
-import ExcelJS from 'exceljs';
+import { fetchJiraIssue, addJiraComment } from './services/jiraService.js';
+// REZOLVARE: Importăm din geminiService2.js aflat direct în folderul src/
+import { generateTestCases, generateAutomationTests } from './services/geminiServiceDOM.js';
+import { generateExcelReport } from './services/excelService.js';
+import { uploadToGoogleDrive } from './services/driveService.js';
 
-// Încărcăm variabilele de mediu din fișierul .env
-dotenv.config();
-
-const jiraHost = process.env.JIRA_HOST;
-const jiraEmail = process.env.JIRA_EMAIL;
-const jiraApiToken = process.env.JIRA_API_TOKEN;
-const geminiApiKey = process.env.GEMINI_API_KEY;
-
-// Verificăm dacă avem toate configurările necesare
-if (!jiraHost || !jiraEmail || !jiraApiToken || !geminiApiKey) {
-  console.error("❌ Eroare: Te rog verifică fișierul .env! Lipsesc configurări pentru Jira sau Gemini.");
-  process.exit(1);
-}
-
-// Inițializăm clientul Jira
-const jira = new JiraClient({
-  protocol: 'https',
-  host: jiraHost.replace('https://', ''),
-  username: jiraEmail,
-  password: jiraApiToken,
-  apiVersion: '2',
-  strictSSL: true
-});
-
-// Inițializăm clientul Gemini API
-const genAI = new GoogleGenerativeAI(geminiApiKey);
-
-async function ruleazaAgentQA() {
+/**
+ * Main function that orchestrates and runs the QA Agent from end to end.
+ */
+async function runQAAgent() {
   try {
-    // 1. Definim tichetul pe care vrem să îl analizăm (înlocuiește cu un ID valid din Jira-ul tău)
+    // 1. Define the Jira ticket we want to analyze
     const issueKey = 'QARO-59'; 
-    console.log(`\n🔍 Pasul 1: Se accesează Jira pentru tichetul ${issueKey}...`);
     
-    const issue = await jira.findIssue(issueKey);
-    const titluStory = issue.fields.summary;
-    const descriereStory = issue.fields.description || 'Fără descriere disponibilă.';
+    // 2. Fetch details from Jira (SUMMARY & DESCRIPTION)
+    const issueData = await fetchJiraIssue(issueKey);
+    console.log(`✅ Issue retrieved successfully! Title: "${issueData.title}"`);
     
-    console.log(`✅ Tichet preluat cu succes!`);
-    console.log(`📌 Titlu: ${titluStory}`);
+    // 3. Generate structured test cases using Gemini LLM
+    const testCases = await generateTestCases(issueData.title, issueData.description);
+    console.log(`✅ Successfully generated ${testCases.length} test cases using Gemini AI!`);
     
-    // 2. Pregătim instrucțiunile (prompt-ul) pentru Gemini ca să ne returneze JSON structurat
-    console.log(`\n🤖 Pasul 2: Se trimit datele către Gemini AI pentru analiză QA...`);
+    // 4. NEW STEP: Generate Playwright POM & Test Spec dynamically based on the test cases
+    await generateAutomationTests(testCases, issueKey);
+    console.log(`✅ Automatically generated Playwright E2E files based on Jira criteria!`);
     
-    // Configurăm Gemini să returneze un format JSON strict
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-flash',
-      generationConfig: { responseMimeType: "application/json" }
-    });
+    // 5. Export the generated test cases into a local Excel spreadsheet (as backup)
+    const excelFile = await generateExcelReport(issueKey, testCases);
     
-    const prompt = `
-      Ești un Senior QA Engineer. Analizează următorul User Story din Jira și generează cazuri de testare detaliate și structurate.
-      Răspunsul tău TREBUIE să fie un obiect JSON valid, fără alte texte explicative pe lângă el.
-      
-      Structura JSON pe care trebuie să o respecți cu strictețe este:
-      {
-        "testCases": [
-          {
-            "id": "TC001",
-            "tip": "Pozitiv",
-            "titlu": "Titlu scurt al cazului de testare",
-            "preconditii": "Precondiții necesare (dacă există, altfel lasă gol)",
-            "pasi": "1. Primul pas\\n2. Al doilea pas\\n3. Al treilea pas",
-            "rezultatAsteptat": "Rezultatul așteptat detaliat"
-          }
-        ]
-      }
-      
-      Valori permise pentru 'tip': 'Pozitiv', 'Negativ', 'Edge Case'.
-      
-      Iată detaliile tichetului de Jira:
-      --------------------------------------------------
-      Titlu Story: ${titluStory}
-      Descriere Story: ${descriereStory}
-      --------------------------------------------------
-      
-      Te rog să scrii textele în limba română.
-    `;
+    // 6. Upload/Append the test cases to Google Drive (Master Spreadsheet or folder)
+    await uploadToGoogleDrive(excelFile, issueKey, testCases);
     
-    // Apelăm modelul de AI și așteptăm răspunsul
-    const rezultat = await model.generateContent(prompt);
-    const raspunsAI = rezultat.response.text();
+    // 7. Add the formatted wiki table comment directly to the Jira ticket
+    await addJiraComment(issueKey, testCases);
     
-    // 3. Parsăm JSON-ul primit de la Gemini
-    console.log(`\n📊 Pasul 3: Se procesează datele primite de la AI...`);
-    
-    let curatat = raspunsAI.trim();
-    // Curățăm eventualele blocuri de cod markdown trimise accidental de model
-    if (curatat.startsWith('```')) {
-      curatat = curatat.replace(/^```json\s*/, '').replace(/```$/, '').trim();
-    }
-    
-    const dateTestare = JSON.parse(curatat);
-    
-    if (!dateTestare.testCases || !Array.isArray(dateTestare.testCases)) {
-      throw new Error("Formatul JSON returnat de AI este invalid sau nu conține array-ul 'testCases'.");
-    }
-
-    // 4. Generăm fișierul Excel folosind exceljs
-    console.log(`💾 Pasul 4: Se generează fișierul Excel...`);
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Cazuri de Testare');
-    
-    // Definim coloanele, cheile de legătură și dimensiunile
-    worksheet.columns = [
-      { header: 'ID', key: 'id', width: 10 },
-      { header: 'Tip Test', key: 'tip', width: 15 },
-      { header: 'Titlu Caz de Testare', key: 'titlu', width: 35 },
-      { header: 'Precondiții', key: 'preconditii', width: 30 },
-      { header: 'Pași de Reproducere', key: 'pasi', width: 50 },
-      { header: 'Rezultat Așteptat', key: 'rezultatAsteptat', width: 50 }
-    ];
-    
-    // Stilăm capul de tabel (Header-ul) pentru un aspect profesional
-    const headerRow = worksheet.getRow(1);
-    headerRow.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFF' } };
-    headerRow.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: '1F4E78' } // Albastru închis corporate
-    };
-    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-    headerRow.height = 25;
-
-    // Adăugăm rândurile cu date în tabel
-    dateTestare.testCases.forEach((tc: any) => {
-      const rand = worksheet.addRow({
-        id: tc.id,
-        tip: tc.tip,
-        titlu: tc.titlu,
-        preconditii: tc.preconditii || 'N/A',
-        pasi: tc.pasi,
-        rezultatAsteptat: tc.rezultatAsteptat
-      });
-      
-      // Permitem textului să se așeze pe mai multe linii (wrap text) și îl aliniem sus
-      rand.alignment = { wrapText: true, vertical: 'top' };
-    });
-
-    // Salvăm fișierul local cu numele tichetului
-    const numeFisier = `Cazuri_Testare_${issueKey}.xlsx`;
-    await workbook.xlsx.writeFile(numeFisier);
-    
-    console.log(`\n💾 Succes deplin!`);
-    console.log(`--------------------------------------------------`);
-    console.log(`📁 Fișierul Excel a fost salvat ca: ${numeFisier}`);
-    console.log(`💡 Deschide folderul proiectului pentru a vizualiza fișierul Excel generat.`);
+    console.log(`\n💾 Process completed successfully!`);
     console.log(`--------------------------------------------------`);
     
   } catch (error) {
-    console.error("❌ A apărut o eroare în timpul rulării agentului:", error);
+    console.error("❌ An error occurred during agent execution:", error);
   }
 }
 
-ruleazaAgentQA();
+// Start the QA Agent
+runQAAgent();
