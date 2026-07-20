@@ -9,7 +9,7 @@ import { uploadToGoogleDrive } from './services/driveService.js';
 async function runQAAgent() {
   try {
     // 1. Define the Jira ticket we want to analyze
-    const issueKey = 'ZR-597'; 
+    const issueKey = 'QARO-59'; 
     
     // 2. Fetch details from Jira (SUMMARY & DESCRIPTION)
     const issueData = await fetchJiraIssue(issueKey);
